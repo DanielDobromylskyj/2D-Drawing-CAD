@@ -10,6 +10,9 @@ class Drawing:
         self.name = name
         self.visible = visible
 
+
+        self.pivot_image = pygame.image.load("assets/placables/pivot.png").convert_alpha()
+
         self.pivots = []   # (cx, cy, {...})
         self.lines = []    # ((x1, y1), (x2, y2))
 
@@ -48,3 +51,6 @@ class Drawing:
                 (sx1, sy1), (sx2, sy2),
                 width=round(self.LINE_WIDTH * zoom)
             )
+
+        for x, y, i in self.pivots:
+            screen.blit(self.pivot_image, (x, y))

@@ -62,10 +62,6 @@ class App:
     BACKGROUND_DOT_RADIUS: int = 3
 
     def __init__(self):
-        # Drawing manager
-        self.drawings = [Drawing("Unnamed Drawing")]
-        self.active_drawing = 0
-
         # View + interaction state
         self.zoom = 1.0
         self.dragging = False
@@ -80,9 +76,14 @@ class App:
         win_size = pygame.display.get_desktop_sizes()[0]
         self.screen = pygame.display.set_mode(win_size, pygame.SRCALPHA)
 
+        # Drawing manager
+        self.drawings = [Drawing("Unnamed Drawing")]
+        self.active_drawing = 0
+
         # Icons
         self.VISIBLE_IMAGE = pygame.image.load("assets/drawing_manager/visible.png").convert_alpha()
         self.NOT_VISIBLE_IMAGE = pygame.image.load("assets/drawing_manager/not_visible.png").convert_alpha()
+        self.PIVOT_IMAGE = pygame.image.load("assets/placables/pivot.png").convert_alpha()
 
         # UI
         self.font = pygame.font.SysFont("monospace", 16)
@@ -209,6 +210,7 @@ class App:
                 elif event.type == pygame.MOUSEBUTTONUP:
                     if event.button == 3:
                         self.dragging = False
+
                     elif event.button == 1 and self.drawing_line:
                         mx, my = pygame.mouse.get_pos()
                         line_end = (
@@ -225,6 +227,21 @@ class App:
                             (self.line_start_coord, line_end)
                         )
                         self.drawing_line = False
+
+                    elif event.button == 1 and self.__toolbar.tool_id == "pivot":
+                        mx, my = pygame.mouse.get_pos()
+
+                        px = ((mx - self.view_position[0]) / self.zoom) - (self.PIVOT_IMAGE.get_width()  // 2)
+                        py = ((my - self.view_position[1]) / self.zoom) - (self.PIVOT_IMAGE.get_height() // 2)
+
+                        if self.grid_lock:
+                            grid_size = self.GRID_SPACING
+                            px = round(px / (grid_size // 2)) * (grid_size // 2) - (self.PIVOT_IMAGE.get_width()  // 2)
+                            py = round(py / (grid_size // 2)) * (grid_size // 2) - (self.PIVOT_IMAGE.get_height() // 2)
+
+                        self.drawings[self.active_drawing].pivots.append(
+                            (px, py, None)
+                        )
 
                 elif event.type == pygame.MOUSEMOTION and self.dragging:
                     dx, dy = event.rel
@@ -265,17 +282,17 @@ class App:
                 if drawing.visible:
                     drawing.draw(self.screen, self.zoom, self.view_position, i == self.active_drawing)
 
-            # preview line
-            if self.drawing_line:
-                mx, my = pygame.mouse.get_pos()
+            # Preview line
 
+            mx, my = pygame.mouse.get_pos()
+            if self.drawing_line:
                 # start point: drawing → screen
                 start = (
                     self.line_start_coord[0] * self.zoom + self.view_position[0],
                     self.line_start_coord[1] * self.zoom + self.view_position[1]
                 )
 
-                # convert mouse → drawing space
+                # Convert mouse → drawing space
                 end_dx = (mx - self.view_position[0]) / self.zoom
                 end_dy = (my - self.view_position[1]) / self.zoom
 
@@ -297,6 +314,19 @@ class App:
                     width=round(Drawing.LINE_WIDTH * self.zoom)
                 )
 
+            if self.__toolbar.tool_id == "pivot":
+                px = (mx - self.view_position[0]) / self.zoom
+                py = (my - self.view_position[1]) / self.zoom
+
+                if self.grid_lock:
+                    grid_size = self.GRID_SPACING
+                    px = round(px / (grid_size//2)) * (grid_size//2)
+                    py = round(py / (grid_size//2)) * (grid_size//2)
+
+                self.screen.blit(
+                    self.PIVOT_IMAGE, (px - (self.PIVOT_IMAGE.get_width() // 2), py - (self.PIVOT_IMAGE.get_height() // 2))
+                )
+
             # draw UI
             self.screen.blit(self.__toolbar.surface, (self.screen.get_width() * 0.1, self.screen.get_height() - 60))
             self.screen.blit(self.__drawing_manager_surface, (10, 10))
@@ -309,4 +339,5 @@ class App:
 if __name__ == "__main__":
     app = App()
     app.drawings.append(Drawing("Demo 2"))
+    app.drawing_manager_update_required = True
     app.run()
