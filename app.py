@@ -62,36 +62,99 @@ class App:
     BACKGROUND_DOT_RADIUS: int = 3
 
     def __init__(self):
+        # Drawing manager
         self.drawings = [Drawing("Unnamed Drawing")]
         self.active_drawing = 0
+
+        # View + interaction state
         self.zoom = 1.0
         self.dragging = False
         self.view_position = [0, 0]
 
+        # Tool state
         self.line_start_coord = None
         self.drawing_line = False
         self.grid_lock = True
 
+        # Window
         win_size = pygame.display.get_desktop_sizes()[0]
         self.screen = pygame.display.set_mode(win_size, pygame.SRCALPHA)
 
-        self.font = pygame.font.SysFont("monospace", 16)
+        # Icons
+        self.VISIBLE_IMAGE = pygame.image.load("assets/drawing_manager/visible.png").convert_alpha()
+        self.NOT_VISIBLE_IMAGE = pygame.image.load("assets/drawing_manager/not_visible.png").convert_alpha()
 
+        # UI
+        self.font = pygame.font.SysFont("monospace", 16)
         self.__toolbar = Toolbar(win_size)
         self.__toolbar.draw()
 
-        # background cache
+        # Background cache
         self.__background_surface = self.__create_background()
         self.background_update_required = False
 
+        # Drawing manager UI cache
+        self.__drawing_manager_surface = self.__create_drawing_manager()
+        self.drawing_manager_update_required = False
+
+
         self.running = False
 
+    def __create_drawing_manager(self):
+        """Builds the drawing manager sidebar surface."""
+        width = 250
+        height = 20 + len(self.drawings) * 40
+        surface = pygame.Surface((width, height), pygame.SRCALPHA)
+        surface.fill((200, 200, 200, 220))
+
+        y = 10
+        for i, drawing in enumerate(self.drawings):
+            # highlight active drawing
+            if i == self.active_drawing:
+                pygame.draw.rect(surface, (180, 180, 250), (5, y - 2, width - 10, 36), border_radius=5)
+
+            # name text
+            text = self.font.render(drawing.name, True, (0, 0, 0))
+            surface.blit(text, (40, y + 8))
+
+            # visibility toggle
+            icon = self.VISIBLE_IMAGE if drawing.visible else self.NOT_VISIBLE_IMAGE
+            surface.blit(icon, (10, y + 4))
+
+            y += 40
+
+        return surface.convert_alpha()
+
+    def handle_drawing_manager_click(self, x, y):
+        """Handle clicks inside the drawing manager."""
+        if not self.__drawing_manager_surface:
+            return False
+
+        # Check if click is inside the sidebar
+        dm_x, dm_y = 10, 10  # top-left corner of manager on screen
+        if not (dm_x <= x <= dm_x + self.__drawing_manager_surface.get_width() and
+                dm_y <= y <= dm_y + self.__drawing_manager_surface.get_height()):
+            return False
+
+        rel_y = y - dm_y - 10
+        index = rel_y // 40
+        if 0 <= index < len(self.drawings):
+            if 10 <= (x - dm_x) <= 30:  # clicked visibility icon
+                self.drawings[index].visible = not self.drawings[index].visible
+            else:  # clicked row → set active
+                self.active_drawing = index
+            self.drawing_manager_update_required = True
+            return True
+
+        return False
+
     def __create_background(self):
+        """Pre-rendered dotted background for performance."""
         true_grid_spacing = self.GRID_SPACING * self.zoom
         w, h = self.screen.get_size()
         surface = pygame.Surface(
             (w + int(true_grid_spacing * 2), h + int(true_grid_spacing * 2)),
-            pygame.SRCALPHA
+            pygame.SRCALPHA,
         )
         surface.fill((*self.BACKGROUND_COLOR, 255))
 
@@ -101,7 +164,7 @@ class App:
                     surface,
                     self.BACKGROUND_DOT_COLOUR,
                     (x, y),
-                    self.BACKGROUND_DOT_RADIUS
+                    self.BACKGROUND_DOT_RADIUS,
                 )
 
         return surface.convert_alpha()
@@ -127,7 +190,10 @@ class App:
                     if event.button == 3:
                         self.dragging = True
                     elif event.button == 1:
-                        if self.__toolbar.tool_id == "line" and not self.drawing_line:
+                        if self.handle_drawing_manager_click(x, y):
+                            continue
+
+                        elif self.__toolbar.tool_id == "line" and not self.drawing_line:
                             self.line_start_coord = (
                                 (x - self.view_position[0]) / self.zoom,
                                 (y - self.view_position[1]) / self.zoom
@@ -183,6 +249,10 @@ class App:
                 self.background_update_required = False
                 self.__background_surface = self.__create_background()
 
+            if self.drawing_manager_update_required:
+                self.drawing_manager_update_required = False
+                self.__drawing_manager_surface = self.__create_drawing_manager()
+
             # draw background (with view offset)
             self.screen.blit(
                 self.__background_surface,
@@ -229,6 +299,8 @@ class App:
 
             # draw UI
             self.screen.blit(self.__toolbar.surface, (self.screen.get_width() * 0.1, self.screen.get_height() - 60))
+            self.screen.blit(self.__drawing_manager_surface, (10, 10))
+
             pygame.display.flip()
 
         pygame.quit()
@@ -236,4 +308,5 @@ class App:
 
 if __name__ == "__main__":
     app = App()
+    app.drawings.append(Drawing("Demo 2"))
     app.run()
