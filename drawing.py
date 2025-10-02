@@ -19,13 +19,17 @@ class Drawing:
     def get_bounds(self):
         xs, ys = [], []
 
-        for cx, cy, *_ in self.pivots:
-            xs.append(cx)
-            ys.append(cy)
+        for raw in self.pivots:
+            if raw:
+                cx, cy, *_ = raw
+                xs.append(cx)
+                ys.append(cy)
 
-        for (x1, y1), (x2, y2) in self.lines:
-            xs.extend([x1, x2])
-            ys.extend([y1, y2])
+        for raw in self.lines:
+            if raw:
+                (x1, y1), (x2, y2) = raw
+                xs.extend([x1, x2])
+                ys.extend([y1, y2])
 
         if not xs or not ys:
             return (0, 0), (0, 0)
@@ -38,7 +42,12 @@ class Drawing:
         """Draws directly onto the given screen surface."""
         line_colour = self.ACTIVE_COLOUR if is_active else self.UNACTIVE_COLOUR
 
-        for (x1, y1), (x2, y2) in self.lines:
+        for raw in self.lines:
+            if not raw:
+                continue
+
+            (x1, y1), (x2, y2) = raw
+
             # scale + offset into screen space
             sx1 = x1 * zoom + view_position[0]
             sy1 = y1 * zoom + view_position[1]
@@ -52,5 +61,9 @@ class Drawing:
                 width=round(self.LINE_WIDTH * zoom)
             )
 
-        for x, y, i in self.pivots:
+        for raw in self.pivots:
+            if not raw:
+                continue
+
+            x, y, i = raw
             screen.blit(self.pivot_image, (x, y))

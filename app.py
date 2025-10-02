@@ -33,6 +33,7 @@ class Toolbar:
                 if (x < mx < x + 50) and (2 < my < 52):
                     self.tool_id = option["tool_id"]
                     break
+                    
                 x += 55
             return True
         return False
@@ -98,8 +99,38 @@ class App:
         self.__drawing_manager_surface = self.__create_drawing_manager()
         self.drawing_manager_update_required = False
 
+        # Undo
+        self.max_undo_log = 100
+        self.undo_log = []
+
 
         self.running = False
+
+    def __log_ctrl_z(self, event_type, event_data):
+        self.undo_log.insert(0, (event_type, event_data))
+
+        if len(self.undo_log) > self.max_undo_log:
+            self.undo_log.pop(-1)
+
+    def undo(self):
+        if len(self.undo_log) > 0:
+            event_type, event_data = self.undo_log.pop(0)
+
+            if event_type == "line.draw":
+                drawing_index, target_index = event_data
+
+                self.drawings[drawing_index].lines.pop(target_index)
+                self.drawings[drawing_index].lines.insert(target_index, None)
+
+            elif event_type == "pivot.draw":
+                drawing_index, target_index = event_data
+
+                self.drawings[drawing_index].pivots.pop(target_index)
+                self.drawings[drawing_index].pivots.insert(target_index, None)
+
+            else:
+                raise NotImplementedError(f"Failed to undo value. Not implemented: {event_type}: {event_data}")
+
 
     def __create_drawing_manager(self):
         """Builds the drawing manager sidebar surface."""
@@ -188,8 +219,9 @@ class App:
                              y - (self.screen.get_height() - 60)), event)):
                         continue
 
-                    if event.button == 3:
+                    elif event.button == 3:
                         self.dragging = True
+
                     elif event.button == 1:
                         if self.handle_drawing_manager_click(x, y):
                             continue
@@ -226,6 +258,7 @@ class App:
                         self.drawings[self.active_drawing].lines.append(
                             (self.line_start_coord, line_end)
                         )
+                        self.__log_ctrl_z("line.draw", (self.active_drawing, len(self.drawings[self.active_drawing].lines) - 1))
                         self.drawing_line = False
 
                     elif event.button == 1 and self.__toolbar.tool_id == "pivot":
@@ -243,8 +276,12 @@ class App:
                             (px, py, None)
                         )
 
+                        self.__log_ctrl_z("pivot.draw",
+                                          (self.active_drawing, len(self.drawings[self.active_drawing].pivots) - 1))
+
                 elif event.type == pygame.MOUSEMOTION and self.dragging:
                     dx, dy = event.rel
+
                     self.view_position[0] += dx
                     self.view_position[1] += dy
 
@@ -258,9 +295,15 @@ class App:
                     if event.key == pygame.K_LSHIFT:
                         self.grid_lock = False
 
+
                 elif event.type == pygame.KEYUP:
+                    mods = pygame.key.get_mods()
+
                     if event.key == pygame.K_LSHIFT:
                         self.grid_lock = True
+
+                    if event.key == pygame.K_z and mods & pygame.KMOD_CTRL:
+                        self.undo()
 
             if self.background_update_required:
                 self.background_update_required = False
