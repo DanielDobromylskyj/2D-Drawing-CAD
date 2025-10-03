@@ -1,5 +1,7 @@
-import pygame
+import pygame, copy
+
 from drawing import Drawing
+from simulator import Simulation
 
 pygame.init()
 
@@ -23,6 +25,11 @@ class Toolbar:
                 "tool_id": "pivot",
                 "icon": pygame.image.load("assets/toolbar/pivot.png").convert_alpha(),
             },
+            {
+                "type": "tool",
+                "tool_id": "anchor",
+                "icon": pygame.image.load("assets/toolbar/anchor.png").convert_alpha(),
+            },
         ]
 
     def click(self, xy, event):
@@ -33,7 +40,7 @@ class Toolbar:
                 if (x < mx < x + 50) and (2 < my < 52):
                     self.tool_id = option["tool_id"]
                     break
-                    
+
                 x += 55
             return True
         return False
@@ -62,6 +69,8 @@ class App:
     BACKGROUND_DOT_COLOUR = (40, 40, 40)
     BACKGROUND_DOT_RADIUS: int = 3
 
+    HINT_TEXT_COLOUR = (10, 10, 10)
+
     def __init__(self):
         # View + interaction state
         self.zoom = 1.0
@@ -69,16 +78,18 @@ class App:
         self.view_position = [0, 0]
 
         # Tool state
+        self.display_text = ""
         self.line_start_coord = None
         self.drawing_line = False
         self.grid_lock = True
+        self.connecting_pivot = False
 
         # Window
         win_size = pygame.display.get_desktop_sizes()[0]
         self.screen = pygame.display.set_mode(win_size, pygame.SRCALPHA)
 
         # Drawing manager
-        self.drawings = [Drawing("Unnamed Drawing")]
+        self.drawings = [Drawing("Drawing 1")]
         self.active_drawing = 0
 
         # Icons
@@ -127,6 +138,20 @@ class App:
 
                 self.drawings[drawing_index].pivots.pop(target_index)
                 self.drawings[drawing_index].pivots.insert(target_index, None)
+
+            elif event_type == "pivot.link":
+                drawing_index, target_index = event_data
+
+                self.drawings[drawing_index].pivots[target_index][2] = None
+                self.display_text = "Pivot: Select (Left click) a second drawing to link pivot."
+                self.connecting_pivot = True
+
+            elif event_type == "drawing.new":
+                self.drawings.pop(event_data)
+                self.drawing_manager_update_required = True
+
+                if self.active_drawing >= len(self.drawings):
+                    self.active_drawing = len(self.drawings) - 1
 
             else:
                 raise NotImplementedError(f"Failed to undo value. Not implemented: {event_type}: {event_data}")
@@ -201,10 +226,49 @@ class App:
 
         return surface.convert_alpha()
 
+    def run_simulation(self):
+        pivot_image = self.drawings[0].pivot_image
+
+        for drawing in self.drawings:
+            drawing.pivot_image = None
+
+        drawings = copy.deepcopy(self.drawings)
+
+        for drawing in self.drawings:
+            drawing.pivot_image = pivot_image
+
+        SPEED_MULTIPLIER = 1
+
+        sim = Simulation(drawings, gravity=True)
+        clock = pygame.time.Clock()
+        target_fps = 60
+
+        sim_running = True
+        while sim_running:
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    sim_running = False
+
+            delta_time = clock.get_time() / 1000
+
+            self.screen.fill((*self.BACKGROUND_COLOR, 255))
+
+            sim.tick(delta_time * SPEED_MULTIPLIER)
+            sim.render(self.screen, self.zoom, self.view_position)
+
+            text_rect = self.font.render(f"FPS: {int(clock.get_fps())}, Sim FPS: {int(clock.get_fps() * SPEED_MULTIPLIER)}", True, (255, 0, 0))
+            self.screen.blit(text_rect, (10, 10))
+
+            pygame.display.flip()
+
+            clock.tick(target_fps)
+
+
     def run(self):
         self.running = True
         while self.running:
             spacing = self.GRID_SPACING * self.zoom
+            mx, my = pygame.mouse.get_pos()
 
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
@@ -217,13 +281,20 @@ class App:
                         self.__toolbar.click(
                             (x - (self.screen.get_width() * 0.1),
                              y - (self.screen.get_height() - 60)), event)):
-                        continue
+
+                        if self.__toolbar.tool_id == "anchor":
+                            status = not self.drawings[self.active_drawing].anchored
+                            self.display_text = f"Anchor: {'On' if status else 'Off'}"
+                            self.drawings[self.active_drawing].anchored = status
+
+                        else:
+                            self.display_text = ""
 
                     elif event.button == 3:
                         self.dragging = True
 
                     elif event.button == 1:
-                        if self.handle_drawing_manager_click(x, y):
+                        if not self.connecting_pivot and self.handle_drawing_manager_click(x, y):
                             continue
 
                         elif self.__toolbar.tool_id == "line" and not self.drawing_line:
@@ -239,12 +310,51 @@ class App:
 
                             self.drawing_line = True
 
+                        elif self.__toolbar.tool_id == "pivot" and not self.connecting_pivot:
+                            # convert to drawing coords
+                            px = (mx - self.view_position[0]) / self.zoom
+                            py = (my - self.view_position[1]) / self.zoom
+
+                            if self.grid_lock:
+                                grid_size = self.GRID_SPACING // 2  # snap to half-grid
+                                px = round(px / grid_size) * grid_size
+                                py = round(py / grid_size) * grid_size
+
+                            # store pivot as drawing-space coords
+                            self.drawings[self.active_drawing].pivots.append([px, py, None])
+                            self.display_text = "Pivot: Select (Left click) a second drawing to link pivot."
+                            self.connecting_pivot = True
+
+                            self.__log_ctrl_z("pivot.draw",
+                                              (self.active_drawing, len(self.drawings[self.active_drawing].pivots) - 1))
+
+                        elif self.__toolbar.tool_id == "pivot" and self.connecting_pivot:
+                            # Check if click is inside the sidebar
+                            hovered_drawing = -1
+                            dm_x, dm_y = 10, 10  # top-left corner of manager on screen
+                            if not (dm_x <= mx <= dm_x + self.__drawing_manager_surface.get_width() and
+                                    dm_y <= my <= dm_y + self.__drawing_manager_surface.get_height()):
+                                hovered_drawing = -2
+
+                            rel_y = my - dm_y - 10
+                            possible_index = rel_y // 40
+                            if 0 <= possible_index < len(self.drawings) and hovered_drawing == -1:
+                                hovered_drawing = possible_index
+
+                            if hovered_drawing >= 0:
+                                self.drawings[self.active_drawing].pivots[-1][2] = hovered_drawing
+                                self.display_text = ""
+                                self.connecting_pivot = False
+
+                                self.__log_ctrl_z("pivot.link", (self.active_drawing,
+                                                                len(self.drawings[self.active_drawing].pivots) - 1))
+
+
                 elif event.type == pygame.MOUSEBUTTONUP:
                     if event.button == 3:
                         self.dragging = False
 
                     elif event.button == 1 and self.drawing_line:
-                        mx, my = pygame.mouse.get_pos()
                         line_end = (
                             (mx - self.view_position[0]) / self.zoom,
                             (my - self.view_position[1]) / self.zoom
@@ -261,23 +371,6 @@ class App:
                         self.__log_ctrl_z("line.draw", (self.active_drawing, len(self.drawings[self.active_drawing].lines) - 1))
                         self.drawing_line = False
 
-                    elif event.button == 1 and self.__toolbar.tool_id == "pivot":
-                        mx, my = pygame.mouse.get_pos()
-
-                        px = ((mx - self.view_position[0]) / self.zoom) - (self.PIVOT_IMAGE.get_width()  // 2)
-                        py = ((my - self.view_position[1]) / self.zoom) - (self.PIVOT_IMAGE.get_height() // 2)
-
-                        if self.grid_lock:
-                            grid_size = self.GRID_SPACING
-                            px = round(px / (grid_size // 2)) * (grid_size // 2) - (self.PIVOT_IMAGE.get_width()  // 2)
-                            py = round(py / (grid_size // 2)) * (grid_size // 2) - (self.PIVOT_IMAGE.get_height() // 2)
-
-                        self.drawings[self.active_drawing].pivots.append(
-                            (px, py, None)
-                        )
-
-                        self.__log_ctrl_z("pivot.draw",
-                                          (self.active_drawing, len(self.drawings[self.active_drawing].pivots) - 1))
 
                 elif event.type == pygame.MOUSEMOTION and self.dragging:
                     dx, dy = event.rel
@@ -305,6 +398,15 @@ class App:
                     if event.key == pygame.K_z and mods & pygame.KMOD_CTRL:
                         self.undo()
 
+                    if event.key == pygame.K_r and mods & pygame.KMOD_CTRL:
+                        self.run_simulation()
+
+                    if event.key == pygame.K_n and mods & pygame.KMOD_CTRL:
+                        self.drawings.append(Drawing(f"Drawing {len(self.drawings) + 1}"))
+                        self.drawing_manager_update_required = True
+
+                        self.__log_ctrl_z("drawing.new", len(self.drawings)-1)
+
             if self.background_update_required:
                 self.background_update_required = False
                 self.__background_surface = self.__create_background()
@@ -320,14 +422,24 @@ class App:
                  self.view_position[1] % spacing - spacing)
             )
 
+            # Check if click is inside the sidebar
+            hovered_drawing = -1
+            dm_x, dm_y = 10, 10  # top-left corner of manager on screen
+            if not (dm_x <= mx <= dm_x + self.__drawing_manager_surface.get_width() and
+                    dm_y <= my <= dm_y + self.__drawing_manager_surface.get_height()):
+                hovered_drawing = -2
+
+            rel_y = my - dm_y - 10
+            possible_index = rel_y // 40
+            if 0 <= possible_index < len(self.drawings) and hovered_drawing == -1:
+                hovered_drawing = possible_index
+
             # draw drawings
             for i, drawing in enumerate(self.drawings):
                 if drawing.visible:
-                    drawing.draw(self.screen, self.zoom, self.view_position, i == self.active_drawing)
+                    drawing.draw(self.screen, self.zoom, self.view_position, (i == self.active_drawing) or (i == hovered_drawing))
 
             # Preview line
-
-            mx, my = pygame.mouse.get_pos()
             if self.drawing_line:
                 # start point: drawing → screen
                 start = (
@@ -357,18 +469,30 @@ class App:
                     width=round(Drawing.LINE_WIDTH * self.zoom)
                 )
 
-            if self.__toolbar.tool_id == "pivot":
+            if self.__toolbar.tool_id == "pivot":  # Preview pivot location
                 px = (mx - self.view_position[0]) / self.zoom
                 py = (my - self.view_position[1]) / self.zoom
 
                 if self.grid_lock:
                     grid_size = self.GRID_SPACING
-                    px = round(px / (grid_size//2)) * (grid_size//2)
-                    py = round(py / (grid_size//2)) * (grid_size//2)
+                    px = round(px / (grid_size // 2)) * (grid_size // 2)
+                    py = round(py / (grid_size // 2)) * (grid_size // 2)
+
+                # back to screen space
+                screen_x = px * self.zoom + self.view_position[0]
+                screen_y = py * self.zoom + self.view_position[1]
 
                 self.screen.blit(
-                    self.PIVOT_IMAGE, (px - (self.PIVOT_IMAGE.get_width() // 2), py - (self.PIVOT_IMAGE.get_height() // 2))
+                    self.PIVOT_IMAGE,
+                    (
+                        screen_x - (self.PIVOT_IMAGE.get_width() // 2),
+                        screen_y - (self.PIVOT_IMAGE.get_height() // 2),
+                    ),
                 )
+
+            if self.display_text:
+                rect = self.font.render(self.display_text, True, self.HINT_TEXT_COLOUR)
+                self.screen.blit(rect, (self.screen.get_width() / 2 - rect.get_width() / 2, 10))
 
             # draw UI
             self.screen.blit(self.__toolbar.surface, (self.screen.get_width() * 0.1, self.screen.get_height() - 60))
@@ -381,6 +505,4 @@ class App:
 
 if __name__ == "__main__":
     app = App()
-    app.drawings.append(Drawing("Demo 2"))
-    app.drawing_manager_update_required = True
     app.run()

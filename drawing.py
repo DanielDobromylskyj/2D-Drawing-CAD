@@ -14,7 +14,10 @@ class Drawing:
         self.pivot_image = pygame.image.load("assets/placables/pivot.png").convert_alpha()
 
         self.pivots = []   # (cx, cy, {...})
+        self.anchored = False
         self.lines = []    # ((x1, y1), (x2, y2))
+
+        self.simulator_data = {}
 
     def get_bounds(self):
         xs, ys = [], []
@@ -65,5 +68,15 @@ class Drawing:
             if not raw:
                 continue
 
-            x, y, i = raw
-            screen.blit(self.pivot_image, (x, y))
+            px, py, i = raw
+
+            screen_x = px * zoom + view_position[0]
+            screen_y = py * zoom + view_position[1]
+
+            screen.blit(
+                self.pivot_image,
+                (
+                    screen_x - self.pivot_image.get_width() // 2,
+                    screen_y - self.pivot_image.get_height() // 2,
+                )
+            )
