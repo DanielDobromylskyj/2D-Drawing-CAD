@@ -85,7 +85,7 @@ class App:
         self.connecting_pivot = False
 
         # Window
-        win_size = pygame.display.get_desktop_sizes()[0]
+        win_size = (600, 600) #pygame.display.get_desktop_sizes()[0]
         self.screen = pygame.display.set_mode(win_size, pygame.SRCALPHA)
 
         # Drawing manager

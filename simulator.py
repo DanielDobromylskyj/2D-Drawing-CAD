@@ -5,6 +5,8 @@ import pygame
 
 from drawing import Drawing
 
+
+
 def is_closed_polygon(lines):
     adj = defaultdict(set)
     for (x1, y1), (x2, y2) in lines:
@@ -40,9 +42,8 @@ def is_closed_polygon(lines):
 
 def polygon_area(polygon):  # https://www.mathsisfun.com/geometry/area-irregular-polygons.html
     area = 0
-    for i in range(len(polygon) - 1):
-        x1, y1 = polygon[i]
-        x2, y2 = polygon[i+1]
+    for line in polygon:
+        (x1, y1), (x2, y2) = line
         area += x1 * y2 - x2 * y1
     return abs(area) / 2
 
@@ -51,9 +52,8 @@ def polygon_centroid(polygon):
     A = 0
     Cx = 0
     Cy = 0
-    for i in range(len(polygon) - 1):
-        x0, y0 = polygon[i]
-        x1, y1 = polygon[i+1]
+    for line in polygon:
+        (x0, y0), (x1, y1) = line
         cross = x0 * y1 - x1 * y0
         A += cross
         Cx += (x0 + x1) * cross
@@ -93,6 +93,9 @@ class Simulation:
         self.drawings = drawings
         self.current_tick = 0
         self.use_gravity = gravity
+
+        self.pivot_image = pygame.image.load("assets/placables/pivot.png").convert_alpha()
+
         self.__prepare_drawings()
 
     def __calculate_mass(self, drawing):
@@ -102,9 +105,11 @@ class Simulation:
     def __calculate_center_of_mass(self, drawing):
         return polygon_centroid(drawing.lines)
 
+
     def __prepare_drawings(self):
         for drawing in self.drawings:
             closed, polygon = is_closed_polygon(drawing.lines)
+
             if not closed:
                 raise SimulationException("Polygon is not enclosed or is multiple objects")
 
@@ -172,9 +177,11 @@ class Simulation:
             for pivot in d1.pivots:
                 if not pivot:
                     continue
+
                 px, py, info = pivot
                 if not isinstance(info, dict):
                     continue
+
                 if "connected_to" not in info:
                     continue
 
@@ -192,6 +199,7 @@ class Simulation:
                     if not d1.anchored:
                         p1x, p1y = d1.simulator_data["position"]
                         d1.simulator_data["position"] = (p1x + correction[0], p1y + correction[1])
+
                     if not d2.anchored:
                         p2x, p2y = d2.simulator_data["position"]
                         d2.simulator_data["position"] = (p2x - correction[0], p2y - correction[1])
@@ -236,10 +244,10 @@ class Simulation:
                 screen_x = wx * zoom + view_position[0]
                 screen_y = wy * zoom + view_position[1]
                 screen.blit(
-                    drawing.pivot_image,
+                    self.pivot_image,
                     (
-                        screen_x - drawing.pivot_image.get_width() // 2,
-                        screen_y - drawing.pivot_image.get_height() // 2,
+                        screen_x - self.pivot_image.get_width() // 2,
+                        screen_y - self.pivot_image.get_height() // 2,
                     )
                 )
 
